@@ -13,6 +13,11 @@ import (
 	"github.com/hashicorp/go-multierror"
 )
 
+const (
+	defaultInitialMapping = "id = ksuid()"
+	defualtMapping        = "root = this"
+)
+
 func main() {
 	concourse.Main(&Resource{})
 }
@@ -31,7 +36,9 @@ type (
 	}
 
 	// Source describes resource configuration
-	Source struct{}
+	Source struct {
+		InitialMapping string `json:"initial_mapping"`
+	}
 
 	// Version holds arbitrary key value data that can be passed across
 	// jobs within a pipeline
@@ -40,28 +47,22 @@ type (
 	}
 )
 
-// Validate put parameters
-func (p *PutParams) Validate(context.Context) (err error) {
-	if p == nil {
-		return fmt.Errorf("'params' are required")
-	}
-	if len(p.Mapping) == 0 {
-		return fmt.Errorf("'mapping' is required")
-	}
-	return nil
-}
-
 func (s *Source) buildDocument() map[string]interface{} {
-	return map[string]interface{}{
-		"build_id":            os.Getenv("BUILD_ID"),
-		"build_name":          os.Getenv("BUILD_NAME"),
-		"build_job":           os.Getenv("BUILD_JOB_NAME"),
-		"build_pipeline":      os.Getenv("BUILD_PIPELINE_NAME"),
-		"build_instance_vars": os.Getenv("BUILD_PIPELINE_INSTANCE_VARS"),
-		"build_team":          os.Getenv("BUILD_TEAM_NAME"),
-		"build_created_by":    os.Getenv("BUILD_CREATED_BY"),
-		"build_url":           fmt.Sprintf("%s/builds/%s", os.Getenv("ATC_EXTERNAL_URL"), os.Getenv("BUILD_ID")),
+	doc := map[string]interface{}{
+		"build_id":       os.Getenv("BUILD_ID"),
+		"build_name":     os.Getenv("BUILD_NAME"),
+		"build_job":      os.Getenv("BUILD_JOB_NAME"),
+		"build_pipeline": os.Getenv("BUILD_PIPELINE_NAME"),
+		"build_team":     os.Getenv("BUILD_TEAM_NAME"),
+		"build_url":      fmt.Sprintf("%s/builds/%s", os.Getenv("ATC_EXTERNAL_URL"), os.Getenv("BUILD_ID")),
 	}
+	if entry := os.Getenv("BUILD_CREATED_BY"); entry != "" {
+		doc["build_created_by"] = entry
+	}
+	if entry := os.Getenv("BUILD_PIPELINE_INSTANCE_VARS"); entry != "" {
+		doc["build_instance_vars"] = entry
+	}
+	return doc
 }
 
 func (v *Version) MarshalJSON() ([]byte, error) {
@@ -80,7 +81,17 @@ type Resource struct{}
 
 // Check is a required resource method, but is a no-op for this resource
 func (r *Resource) Check(ctx context.Context, s *Source, v *Version) (versions []Version, err error) {
-	if v != nil {
+	if v == nil {
+		m := defaultInitialMapping
+		if s != nil && s.InitialMapping != "" {
+			m = s.InitialMapping
+		}
+		init, _, err := r.newVersion(ctx, s, m)
+		if err != nil {
+			return nil, err
+		}
+		versions = append(versions, *init)
+	} else {
 		versions = append(versions, *v)
 	}
 	return
@@ -94,10 +105,20 @@ func (r *Resource) In(ctx context.Context, s *Source, v *Version, dir string, p 
 		return nil, nil, fmt.Errorf("error creating version.json: %v", err)
 	}
 
-	enc := json.NewEncoder(version)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(v.Data); err != nil {
+	venc := json.NewEncoder(version)
+	venc.SetIndent("", "  ")
+	if err := venc.Encode(v.Data); err != nil {
 		return nil, nil, fmt.Errorf("error writing version.json: %v", err)
+	}
+
+	metadata, err := os.Create(path.Join(dir, "metadata.json"))
+	if err != nil {
+		return nil, nil, fmt.Errorf("error creating metadata.json: %v", err)
+	}
+	menc := json.NewEncoder(metadata)
+	menc.SetIndent("", "  ")
+	if err := menc.Encode(s.buildDocument()); err != nil {
+		return nil, nil, fmt.Errorf("error writing metadata.json: %v", err)
 	}
 
 	if p != nil && len(p.Files) > 0 {
@@ -138,12 +159,33 @@ func (r *Resource) In(ctx context.Context, s *Source, v *Version, dir string, p 
 // Out generates a new version that contains arbitray key value pairs, where both keys
 // and values are string data
 func (r *Resource) Out(ctx context.Context, s *Source, dir string, p *PutParams) (*Version, []concourse.Metadata, error) {
-	e, err := bloblang.Parse(p.Mapping)
+	m := defualtMapping
+	if p != nil && p.Mapping != "" {
+		m = p.Mapping
+	}
+	return r.newVersion(ctx, s, m)
+}
+
+// =============================================================================
+
+func (r *Resource) newVersion(ctx context.Context, s *Source, m string) (*Version, []concourse.Metadata, error) {
+	e, err := bloblang.Parse(m)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error parsing 'mapping': %v", err)
 	}
 
-	raw, err := e.Query(s.buildDocument())
+	meta := s.buildDocument()
+	metadata := []concourse.Metadata{}
+	for k, raw := range meta {
+		if v, ok := raw.(string); ok {
+			metadata = append(metadata, concourse.Metadata{
+				Name:  k,
+				Value: v,
+			})
+		}
+	}
+
+	raw, err := e.Query(meta)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error executing version mapping: %v", err)
 	}
@@ -162,5 +204,5 @@ func (r *Resource) Out(ctx context.Context, s *Source, dir string, p *PutParams)
 	if errs.Len() > 0 {
 		return nil, nil, fmt.Errorf("version mapping returned invalid result: %s", errs.Error())
 	}
-	return &Version{Data: data}, nil, nil
+	return &Version{Data: data}, metadata, nil
 }

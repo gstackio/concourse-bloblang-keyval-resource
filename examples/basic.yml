@@ -1,0 +1,23 @@
+resource_types:
+  - name: keyval
+    type: registry-image
+    source:
+      repository: ghcr.io/cludden/concourse-keyval-resource
+
+resources:
+  - name: keyval
+    type: keyval
+    icon: table
+    expose_build_created_by: true
+
+jobs:
+  - name: example
+    plan:
+      - get: keyval
+
+      - put: keyval
+        params:
+          mapping: |
+            root = this.map_each_key(k -> k.replace_all("build_", ""))
+            id = ksuid()
+            previous_id = file("keyval/version.json").parse_json().id

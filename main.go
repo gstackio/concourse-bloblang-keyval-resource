@@ -11,11 +11,7 @@ import (
 	"github.com/benthosdev/benthos/v4/public/bloblang"
 	concourse "github.com/cludden/concourse-go-sdk"
 	"github.com/hashicorp/go-multierror"
-)
-
-const (
-	defaultInitialMapping = "id = ksuid()"
-	defualtMapping        = "root = this"
+	"gopkg.in/yaml.v2"
 )
 
 func main() {
@@ -47,24 +43,6 @@ type (
 	}
 )
 
-func (s *Source) buildDocument() map[string]interface{} {
-	doc := map[string]interface{}{
-		"build_id":       os.Getenv("BUILD_ID"),
-		"build_name":     os.Getenv("BUILD_NAME"),
-		"build_job":      os.Getenv("BUILD_JOB_NAME"),
-		"build_pipeline": os.Getenv("BUILD_PIPELINE_NAME"),
-		"build_team":     os.Getenv("BUILD_TEAM_NAME"),
-		"build_url":      fmt.Sprintf("%s/builds/%s", os.Getenv("ATC_EXTERNAL_URL"), os.Getenv("BUILD_ID")),
-	}
-	if entry := os.Getenv("BUILD_CREATED_BY"); entry != "" {
-		doc["build_created_by"] = entry
-	}
-	if entry := os.Getenv("BUILD_PIPELINE_INSTANCE_VARS"); entry != "" {
-		doc["build_instance_vars"] = entry
-	}
-	return doc
-}
-
 func (v *Version) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.Data)
 }
@@ -82,11 +60,11 @@ type Resource struct{}
 // Check is a required resource method, but is a no-op for this resource
 func (r *Resource) Check(ctx context.Context, s *Source, v *Version) (versions []Version, err error) {
 	if v == nil {
-		m := defaultInitialMapping
+		m := "id = ksuid()"
 		if s != nil && s.InitialMapping != "" {
 			m = s.InitialMapping
 		}
-		init, _, err := r.newVersion(ctx, s, m)
+		init, _, err := r.newVersion(ctx, m)
 		if err != nil {
 			return nil, err
 		}
@@ -100,31 +78,18 @@ func (r *Resource) Check(ctx context.Context, s *Source, v *Version) (versions [
 // In writes an incoming version the filesystem, allowing downstream steams to utilize
 // arbitary data from an earlier put step
 func (r *Resource) In(ctx context.Context, s *Source, v *Version, dir string, p *GetParams) (*Version, []concourse.Metadata, error) {
-	version, err := os.Create(path.Join(dir, "version.json"))
-	if err != nil {
-		return nil, nil, fmt.Errorf("error creating version.json: %v", err)
-	}
-
-	venc := json.NewEncoder(version)
-	venc.SetIndent("", "  ")
-	if err := venc.Encode(v.Data); err != nil {
+	if err := writeJSON(dir, "version.json", v); err != nil {
 		return nil, nil, fmt.Errorf("error writing version.json: %v", err)
 	}
 
-	metadata, err := os.Create(path.Join(dir, "metadata.json"))
-	if err != nil {
-		return nil, nil, fmt.Errorf("error creating metadata.json: %v", err)
-	}
-	menc := json.NewEncoder(metadata)
-	menc.SetIndent("", "  ")
-	if err := menc.Encode(s.buildDocument()); err != nil {
+	doc, meta := metadata()
+	if err := writeJSON(dir, "metadata.json", doc); err != nil {
 		return nil, nil, fmt.Errorf("error writing metadata.json: %v", err)
 	}
 
 	if p != nil && len(p.Files) > 0 {
-		buildDoc := s.buildDocument()
 		for k, v := range v.Data {
-			buildDoc[k] = v
+			doc[k] = v
 		}
 		for f, m := range p.Files {
 			e, err := bloblang.Parse(m)
@@ -132,7 +97,7 @@ func (r *Resource) In(ctx context.Context, s *Source, v *Version, dir string, p 
 				return nil, nil, fmt.Errorf("error parsing '%s' file mapping: %v", f, err)
 			}
 
-			raw, err := e.Query(buildDoc)
+			raw, err := e.Query(doc)
 			if err != nil {
 				return nil, nil, fmt.Errorf("error executing '%s' file mapping: %v", f, err)
 			}
@@ -144,7 +109,20 @@ func (r *Resource) In(ctx context.Context, s *Source, v *Version, dir string, p 
 			case []byte:
 				b = v
 			default:
-				return nil, nil, fmt.Errorf("invalid type returned by '%s' file mapping: %v", f, v)
+				switch path.Ext(f) {
+				case ".json":
+					b, err = json.Marshal(raw)
+					if err != nil {
+						return nil, nil, fmt.Errorf("error serializing '%s' file mapping result (%T) as json: %v", f, raw, err)
+					}
+				case ".yaml", ".yml":
+					b, err = yaml.Marshal(raw)
+					if err != nil {
+						return nil, nil, fmt.Errorf("error serializing '%s' file mapping result (%T) as yaml: %v", f, raw, err)
+					}
+				default:
+					return nil, nil, fmt.Errorf("unclear how to serialize result (%T) returned by '%s' file mapping: try adding a supported file extension (.json, .yml)", raw, f)
+				}
 			}
 
 			if err := ioutil.WriteFile(path.Join(dir, f), b, 0777); err != nil {
@@ -153,39 +131,58 @@ func (r *Resource) In(ctx context.Context, s *Source, v *Version, dir string, p 
 		}
 	}
 
-	return v, nil, nil
+	return v, meta, nil
 }
 
 // Out generates a new version that contains arbitray key value pairs, where both keys
 // and values are string data
 func (r *Resource) Out(ctx context.Context, s *Source, dir string, p *PutParams) (*Version, []concourse.Metadata, error) {
-	m := defualtMapping
+	m := "root = this"
 	if p != nil && p.Mapping != "" {
 		m = p.Mapping
 	}
-	return r.newVersion(ctx, s, m)
+	return r.newVersion(ctx, m)
 }
 
 // =============================================================================
 
-func (r *Resource) newVersion(ctx context.Context, s *Source, m string) (*Version, []concourse.Metadata, error) {
-	e, err := bloblang.Parse(m)
+// metadata returns build metadata as a map[string]interface{} to be used as the input
+// document to bloblang mappings, in addition to a []concourse.Metadata to be returned
+// by In and Out methods
+func metadata() (doc map[string]interface{}, meta []concourse.Metadata) {
+	doc = map[string]interface{}{
+		"build_id":       os.Getenv("BUILD_ID"),
+		"build_name":     os.Getenv("BUILD_NAME"),
+		"build_job":      os.Getenv("BUILD_JOB_NAME"),
+		"build_pipeline": os.Getenv("BUILD_PIPELINE_NAME"),
+		"build_team":     os.Getenv("BUILD_TEAM_NAME"),
+		"build_url":      fmt.Sprintf("%s/builds/%s", os.Getenv("ATC_EXTERNAL_URL"), os.Getenv("BUILD_ID")),
+	}
+	if entry := os.Getenv("BUILD_CREATED_BY"); entry != "" {
+		doc["build_created_by"] = entry
+	}
+	if entry := os.Getenv("BUILD_PIPELINE_INSTANCE_VARS"); entry != "" {
+		doc["build_instance_vars"] = entry
+	}
+	for k, v := range doc {
+		meta = append(meta, concourse.Metadata{
+			Name:  k,
+			Value: v.(string),
+		})
+	}
+	return
+}
+
+// newVersion initializes a new Version value using the specified mapping
+func (r *Resource) newVersion(ctx context.Context, mapping string) (*Version, []concourse.Metadata, error) {
+	e, err := bloblang.Parse(mapping)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error parsing 'mapping': %v", err)
 	}
 
-	meta := s.buildDocument()
-	metadata := []concourse.Metadata{}
-	for k, raw := range meta {
-		if v, ok := raw.(string); ok {
-			metadata = append(metadata, concourse.Metadata{
-				Name:  k,
-				Value: v,
-			})
-		}
-	}
+	doc, meta := metadata()
 
-	raw, err := e.Query(meta)
+	raw, err := e.Query(doc)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error executing version mapping: %v", err)
 	}
@@ -204,5 +201,18 @@ func (r *Resource) newVersion(ctx context.Context, s *Source, m string) (*Versio
 	if errs.Len() > 0 {
 		return nil, nil, fmt.Errorf("version mapping returned invalid result: %s", errs.Error())
 	}
-	return &Version{Data: data}, metadata, nil
+	return &Version{Data: data}, meta, nil
+}
+
+// writeJSON creates a formatted json file at the given directory + path
+func writeJSON(dir, filename string, data interface{}) error {
+	f, err := os.Create(path.Join(dir, filename))
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	enc := json.NewEncoder(f)
+	enc.SetIndent("", "  ")
+	return enc.Encode(data)
 }

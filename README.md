@@ -1,8 +1,7 @@
 # concourse-keyval-resource
 a [Concourse](https://concourse-ci.org/resources.html) resource for:
-- passing arbitrary data between jobs
-- generating dynamic files
-- extracting filesystem info
+- passing arbitrary data between steps and/or jobs
+- curating dynamic filesystem content
 
 ## Getting Started
 ```yaml
@@ -19,16 +18,55 @@ resources:
     expose_build_created_by: true
 
 jobs:
-  - name: example
+  - name: first
     plan:
-      - get: keyval
-
       - put: keyval
         params:
           mapping: |
             root = this.map_each_key(k -> k.replace_all("build_", ""))
-            id = ksuid()
-            previous_id = file("keyval/version.json").parse_json().id
+
+  - name: second
+    plan:
+      - get: keyval
+        trigger: true
+        passed: [first]
+        params:
+          files:
+            test.md: |
+              root = """
+              # Build Summary
+              | ID | Team | Pipeline | Job | Name |
+              | :---: | :--- | :--- | :--- | :--- |
+              | [%s](%s) | %s | %s | %s | %s |
+              """.format(id, url, team, pipeline, job, name)
+            test.json: |
+              uid = ksuid()
+              id = id
+              url = url
+
+      - task: print
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source:
+              repository: busybox
+          inputs:
+            - name: keyval
+          run:
+            path: /bin/sh
+            args:
+              - -c
+              - |
+                ls -lh ./keyval
+                echo "keyval/version.json:"
+                cat keyval/version.json
+                echo "keyval/metadata.json:"
+                cat keyval/metadata.json
+                echo "keyval/test.md:"
+                cat keyval/test.md
+                echo "keyval/test.json:"
+                cat keyval/test.json
 ```
 
 ## Configuration
@@ -49,14 +87,14 @@ Fetches arbitrary key value data from a prior put step and writes it the file sy
 **Parameters:**
 | Parameter | Type | Description | Required |
 | :--- | :---: | :--- | :---: |
-| files | `map[string]string` | a map of filenames to [Bloblang mappings](https://www.benthos.dev/docs/guides/bloblang/about), where the input document contains the [build metadata](https://concourse-ci.org/implementing-resource-types.html#resource-metadata) along with any key value data from the fetched version, and the output is a `string` or `[]byte` that is the content of the file to write | |
+| files | `map[string]string` | a map of filenames to [Bloblang mappings](https://www.benthos.dev/docs/guides/bloblang/about), where the input document contains the [build metadata](https://concourse-ci.org/implementing-resource-types.html#resource-metadata) along with any key value data from the fetched version, and the output is the content of the file to write (note: unless the file extension is one of `.json`, `.yaml`, or `.yml`, the mapping output must be of type `string` or `[]byte`) | |
 
 **Files:**
 - `version.json` - the key value pairs serialized as a JSON document
 - `metadata.json` - the [build metadata](https://concourse-ci.org/implementing-resource-types.html#resource-metadata) serialized as a JSON document
 - `*` any file mappings defined in the `files` parameter
 
-### `out`: publish arbitrary key value data
+### `out`
 Publishes arbitrary key value data to be shared across jobs.
 
 **Parameters:**

@@ -59,18 +59,15 @@ type Resource struct{}
 
 // Check is a required resource method, but is a no-op for this resource
 func (r *Resource) Check(ctx context.Context, s *Source, v *Version) (versions []Version, err error) {
-	if v == nil {
-		m := "id = ksuid()"
-		if s != nil && s.InitialMapping != "" {
-			m = s.InitialMapping
-		}
-		init, _, err := r.newVersion(ctx, m)
+	if v != nil {
+		versions = append(versions, *v)
+	}
+	if len(versions) == 0 && s.InitialMapping != "" {
+		init, _, err := r.newVersion(ctx, s.InitialMapping)
 		if err != nil {
 			return nil, err
 		}
 		versions = append(versions, *init)
-	} else {
-		versions = append(versions, *v)
 	}
 	return
 }

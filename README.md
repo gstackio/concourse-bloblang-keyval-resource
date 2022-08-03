@@ -74,7 +74,7 @@ jobs:
 **Parameters:**
 | Parameter | Type | Description | Required |
 | :--- | :---: | :--- | :---: |
-| initial_mapping | `string` | a [Bloblang mapping](https://www.benthos.dev/docs/guides/bloblang/about) that can be used to customize the initial version returned by this resource, defaults to `id = ksuid()` | |
+| initial_mapping | `string` | a [Bloblang mapping](https://www.benthos.dev/docs/guides/bloblang/about) that can be used to customize the initial version returned by this resource, if not specified, checking is a noop and should be disabled via `check_every: never` | |
 
 ## Behavior
 

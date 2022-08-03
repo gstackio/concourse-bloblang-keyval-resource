@@ -3,7 +3,7 @@ module github.com/cludden/concourse-keyval-resource
 go 1.18
 
 require (
-	github.com/benthosdev/benthos/v4 v4.4.1
+	github.com/benthosdev/benthos/v4 v4.0.0
 	github.com/cludden/concourse-go-sdk v0.2.0
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/stretchr/testify v1.8.0
@@ -21,6 +21,7 @@ require (
 	github.com/google/go-cmp v0.5.8 // indirect
 	github.com/gorilla/css v1.0.0 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
+	github.com/itchyny/timefmt-go v0.1.3 // indirect
 	github.com/matoous/go-nanoid/v2 v2.0.0 // indirect
 	github.com/mattn/go-colorable v0.1.12 // indirect
 	github.com/mattn/go-isatty v0.0.14 // indirect
@@ -28,6 +29,7 @@ require (
 	github.com/oklog/run v1.1.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/rickb777/date v1.20.0 // indirect
+	github.com/rickb777/plural v1.4.1 // indirect
 	github.com/segmentio/ksuid v1.0.4 // indirect
 	github.com/tidwall/gjson v1.14.1 // indirect
 	github.com/tidwall/match v1.1.1 // indirect

@@ -10,10 +10,23 @@ import (
 	"path"
 	"testing"
 
+	"github.com/benthosdev/benthos/v4/public/bloblang"
 	concourse "github.com/cludden/concourse-go-sdk"
 	"github.com/stretchr/testify/assert"
 	"gopkg.in/yaml.v2"
 )
+
+func TestBloblang(t *testing.T) {
+	var methods, functions []string
+	env := bloblang.NewEnvironment()
+	env.WalkFunctions(func(name string, _ *bloblang.FunctionView) {
+		functions = append(functions, name)
+	})
+	env.WalkMethods(func(name string, _ *bloblang.MethodView) {
+		methods = append(methods, name)
+	})
+	assert.Contains(t, functions, "file")
+}
 
 func TestResource(t *testing.T) {
 	dir := t.TempDir()

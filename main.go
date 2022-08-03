@@ -62,7 +62,7 @@ func (r *Resource) Check(ctx context.Context, s *Source, v *Version) (versions [
 	if v != nil {
 		versions = append(versions, *v)
 	}
-	if len(versions) == 0 && s.InitialMapping != "" {
+	if len(versions) == 0 && s != nil && s.InitialMapping != "" {
 		init, _, err := r.newVersion(ctx, s.InitialMapping)
 		if err != nil {
 			return nil, err

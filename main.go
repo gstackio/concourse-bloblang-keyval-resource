@@ -10,6 +10,7 @@ import (
 
 	"github.com/benthosdev/benthos/v4/public/bloblang"
 	concourse "github.com/cludden/concourse-go-sdk"
+	"github.com/cludden/concourse-go-sdk/pkg/archive"
 	"github.com/hashicorp/go-multierror"
 	"gopkg.in/yaml.v2"
 )
@@ -33,7 +34,8 @@ type (
 
 	// Source describes resource configuration
 	Source struct {
-		InitialMapping string `json:"initial_mapping"`
+		Archive        *archive.Config `json:"archive"`
+		InitialMapping string          `json:"initial_mapping"`
 	}
 
 	// Version holds arbitrary key value data that can be passed across
@@ -57,6 +59,14 @@ func (v *Version) UnmarshalJSON(b []byte) error {
 // Resource implements a keyval concourse resource
 type Resource struct{}
 
+// Archive initializes a new archive value if configured
+func (r *Resource) Archive(ctx context.Context, s *Source) (archive.Archive, error) {
+	if s != nil && s.Archive != nil {
+		return archive.New(ctx, *s.Archive)
+	}
+	return nil, nil
+}
+
 // Check is a required resource method, but is a no-op for this resource
 func (r *Resource) Check(ctx context.Context, s *Source, v *Version) (versions []Version, err error) {
 	if v != nil {
@@ -74,14 +84,14 @@ func (r *Resource) Check(ctx context.Context, s *Source, v *Version) (versions [
 
 // In writes an incoming version the filesystem, allowing downstream steams to utilize
 // arbitary data from an earlier put step
-func (r *Resource) In(ctx context.Context, s *Source, v *Version, dir string, p *GetParams) (*Version, []concourse.Metadata, error) {
+func (r *Resource) In(ctx context.Context, s *Source, v *Version, dir string, p *GetParams) ([]concourse.Metadata, error) {
 	if err := writeJSON(dir, "version.json", v); err != nil {
-		return nil, nil, fmt.Errorf("error writing version.json: %v", err)
+		return nil, fmt.Errorf("error writing version.json: %v", err)
 	}
 
 	doc, meta := metadata()
 	if err := writeJSON(dir, "metadata.json", doc); err != nil {
-		return nil, nil, fmt.Errorf("error writing metadata.json: %v", err)
+		return nil, fmt.Errorf("error writing metadata.json: %v", err)
 	}
 
 	if p != nil && len(p.Files) > 0 {
@@ -91,12 +101,12 @@ func (r *Resource) In(ctx context.Context, s *Source, v *Version, dir string, p 
 		for f, m := range p.Files {
 			e, err := bloblang.Parse(m)
 			if err != nil {
-				return nil, nil, fmt.Errorf("error parsing '%s' file mapping: %v", f, err)
+				return nil, fmt.Errorf("error parsing '%s' file mapping: %v", f, err)
 			}
 
 			raw, err := e.Query(doc)
 			if err != nil {
-				return nil, nil, fmt.Errorf("error executing '%s' file mapping: %v", f, err)
+				return nil, fmt.Errorf("error executing '%s' file mapping: %v", f, err)
 			}
 
 			var b []byte
@@ -110,25 +120,25 @@ func (r *Resource) In(ctx context.Context, s *Source, v *Version, dir string, p 
 				case ".json":
 					b, err = json.Marshal(raw)
 					if err != nil {
-						return nil, nil, fmt.Errorf("error serializing '%s' file mapping result (%T) as json: %v", f, raw, err)
+						return nil, fmt.Errorf("error serializing '%s' file mapping result (%T) as json: %v", f, raw, err)
 					}
 				case ".yaml", ".yml":
 					b, err = yaml.Marshal(raw)
 					if err != nil {
-						return nil, nil, fmt.Errorf("error serializing '%s' file mapping result (%T) as yaml: %v", f, raw, err)
+						return nil, fmt.Errorf("error serializing '%s' file mapping result (%T) as yaml: %v", f, raw, err)
 					}
 				default:
-					return nil, nil, fmt.Errorf("unclear how to serialize result (%T) returned by '%s' file mapping: try adding a supported file extension (.json, .yml)", raw, f)
+					return nil, fmt.Errorf("unclear how to serialize result (%T) returned by '%s' file mapping: try adding a supported file extension (.json, .yml)", raw, f)
 				}
 			}
 
 			if err := ioutil.WriteFile(path.Join(dir, f), b, 0777); err != nil {
-				return nil, nil, fmt.Errorf("error writing '%s' file: %v", f, err)
+				return nil, fmt.Errorf("error writing '%s' file: %v", f, err)
 			}
 		}
 	}
 
-	return v, meta, nil
+	return meta, nil
 }
 
 // Out generates a new version that contains arbitray key value pairs, where both keys

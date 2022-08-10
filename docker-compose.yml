@@ -1,0 +1,12 @@
+version: "3.8"
+
+services:
+  resource:
+    image: ghcr.io/cludden/concourse-keyval-resource
+    depends_on:
+      - localstack
+  localstack:
+    image: localstack/localstack
+    ports:
+      - "0.0.0.0:4566:4566" # LocalStack Gateway
+      - "0.0.0.0:4510-4559:4510-4559" # external services port range

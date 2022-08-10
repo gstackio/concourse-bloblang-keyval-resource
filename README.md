@@ -15,7 +15,9 @@ resources:
   - name: keyval
     type: keyval
     icon: table
+    check_every: never
     expose_build_created_by: true
+    source: {}
 
 jobs:
   - name: first
@@ -74,6 +76,7 @@ jobs:
 **Parameters:**
 | Parameter | Type | Description | Required |
 | :--- | :---: | :--- | :---: |
+| archive | [*archive.Archive](https://pkg.go.dev/github.com/cludden/concourse-go-sdk@v0.3.1/pkg/archive#Config) | optional archive config that can be used to enable [resource version archiving](https://github.com/cludden/concourse-go-sdk#archiving) | |
 | initial_mapping | `string` | a [Bloblang mapping](https://www.benthos.dev/docs/guides/bloblang/about) that can be used to customize the initial version returned by this resource, if not specified, checking is a noop and should be disabled via `check_every: never` | |
 
 ## Behavior

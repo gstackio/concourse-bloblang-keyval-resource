@@ -4,7 +4,7 @@ go 1.18
 
 require (
 	github.com/benthosdev/benthos/v4 v4.0.0
-	github.com/cludden/concourse-go-sdk v0.3.1
+	github.com/cludden/concourse-go-sdk v0.3.2
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/stretchr/testify v1.8.0
 	gopkg.in/yaml.v2 v2.4.0

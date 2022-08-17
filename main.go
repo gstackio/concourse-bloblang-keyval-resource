@@ -9,14 +9,14 @@ import (
 	"path"
 
 	"github.com/benthosdev/benthos/v4/public/bloblang"
-	concourse "github.com/cludden/concourse-go-sdk"
+	sdk "github.com/cludden/concourse-go-sdk"
 	"github.com/cludden/concourse-go-sdk/pkg/archive"
 	"github.com/hashicorp/go-multierror"
 	"gopkg.in/yaml.v2"
 )
 
 func main() {
-	concourse.Main(&Resource{})
+	sdk.Main(&Resource{})
 }
 
 // =============================================================================
@@ -84,7 +84,7 @@ func (r *Resource) Check(ctx context.Context, s *Source, v *Version) (versions [
 
 // In writes an incoming version the filesystem, allowing downstream steams to utilize
 // arbitary data from an earlier put step
-func (r *Resource) In(ctx context.Context, s *Source, v *Version, dir string, p *GetParams) ([]concourse.Metadata, error) {
+func (r *Resource) In(ctx context.Context, s *Source, v *Version, dir string, p *GetParams) ([]sdk.Metadata, error) {
 	if err := writeJSON(dir, "version.json", v); err != nil {
 		return nil, fmt.Errorf("error writing version.json: %v", err)
 	}
@@ -143,7 +143,7 @@ func (r *Resource) In(ctx context.Context, s *Source, v *Version, dir string, p 
 
 // Out generates a new version that contains arbitray key value pairs, where both keys
 // and values are string data
-func (r *Resource) Out(ctx context.Context, s *Source, dir string, p *PutParams) (*Version, []concourse.Metadata, error) {
+func (r *Resource) Out(ctx context.Context, s *Source, dir string, p *PutParams) (*Version, []sdk.Metadata, error) {
 	m := "root = this"
 	if p != nil && p.Mapping != "" {
 		m = p.Mapping
@@ -156,7 +156,7 @@ func (r *Resource) Out(ctx context.Context, s *Source, dir string, p *PutParams)
 // metadata returns build metadata as a map[string]interface{} to be used as the input
 // document to bloblang mappings, in addition to a []concourse.Metadata to be returned
 // by In and Out methods
-func metadata() (doc map[string]interface{}, meta []concourse.Metadata) {
+func metadata() (doc map[string]interface{}, meta []sdk.Metadata) {
 	doc = map[string]interface{}{
 		"build_id":       os.Getenv("BUILD_ID"),
 		"build_name":     os.Getenv("BUILD_NAME"),
@@ -172,7 +172,7 @@ func metadata() (doc map[string]interface{}, meta []concourse.Metadata) {
 		doc["build_instance_vars"] = entry
 	}
 	for k, v := range doc {
-		meta = append(meta, concourse.Metadata{
+		meta = append(meta, sdk.Metadata{
 			Name:  k,
 			Value: v.(string),
 		})
@@ -181,7 +181,7 @@ func metadata() (doc map[string]interface{}, meta []concourse.Metadata) {
 }
 
 // newVersion initializes a new Version value using the specified mapping
-func (r *Resource) newVersion(ctx context.Context, mapping string) (*Version, []concourse.Metadata, error) {
+func (r *Resource) newVersion(ctx context.Context, mapping string) (*Version, []sdk.Metadata, error) {
 	e, err := bloblang.Parse(mapping)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error parsing 'mapping': %v", err)

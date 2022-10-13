@@ -15,9 +15,7 @@ resources:
   - name: keyval
     type: keyval
     icon: table
-    check_every: never
     expose_build_created_by: true
-    source: {}
 
 jobs:
   - name: first
@@ -77,7 +75,7 @@ jobs:
 | Parameter | Type | Description | Required |
 | :--- | :---: | :--- | :---: |
 | archive | [*archive.Archive](https://pkg.go.dev/github.com/cludden/concourse-go-sdk@v0.3.1/pkg/archive#Config) | optional archive config that can be used to enable [resource version archiving](https://github.com/cludden/concourse-go-sdk#archiving) | |
-| initial_mapping | `string` | a [Bloblang mapping](https://www.benthos.dev/docs/guides/bloblang/about) that can be used to customize the initial version returned by this resource, if not specified, checking is a noop and should be disabled via `check_every: never` | |
+| initial_mapping | `string` | a [Bloblang mapping](https://www.benthos.dev/docs/guides/bloblang/about) that can be used to customize the initial version returned by this resource. See [Initial Mapping](#initial-mapping) for more details. | ⚠ |
 
 ## Behavior
 
@@ -117,6 +115,73 @@ Each [Bloblang mappings](https://www.benthos.dev/docs/guides/bloblang/about) the
 | build_pipeline | `string` | the name of the pipeline | ✓ |
 | build_team | `string` | the name of the team | ✓ |
 | build_url | `string` | the fully qualified build url | ✓ |
+
+## Initial Mapping
+In most sitautions, like the example below, the initial use of this resource is with a `put` step, followed by a later `get` step, in which case this field is not required and checking should be disabled via `check_every: never` to conserve resources. 
+
+```yaml
+resource_types:
+  - name: keyval
+    type: registry-image
+    source:
+      repository: ghcr.io/cludden/concourse-keyval-resource
+
+resources:
+  - name: keyval
+    type: keyval
+    icon: table
+    check_every: never
+    expose_build_created_by: true
+
+jobs:
+  - name: first
+    plan:
+      - put: keyval
+        params:
+          mapping: |
+            timestamp = now()
+  
+  - name: second
+    plan:
+      - get: keyval
+        passed: [first]
+        trigger: true
+```
+
+In others, this resource may be initially used with a `get` step (e.g. importing data from a previous build of the same job), in which case this field is required and `check_every` should be set to some value other than `never` in order to allow for Concourse to implicitly run a check when attempting to satisfy inputs for the initial build.
+
+```yaml
+resource_types:
+  - name: keyval
+    type: registry-image
+    source:
+      repository: ghcr.io/cludden/concourse-keyval-resource
+
+resources:
+  - name: keyval
+    type: keyval
+    icon: table
+    check_every: 24h
+    expose_build_created_by: true
+    source:
+      initial_mapping: |
+        count = "0"
+
+jobs:
+  - name: first
+    plan:
+      - get: previous
+        resource: keyval
+
+      - load_var: data
+        file: previous/version.json
+        reveal: true
+
+      - put: keyval
+        params:
+          mapping: |
+            count = (((.:data.count)) + 1).string()
+```
 
 ## License
 Licensed under the [MIT License](LICENSE.md)  

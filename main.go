@@ -9,6 +9,7 @@ import (
 	"path"
 
 	"github.com/benthosdev/benthos/v4/public/bloblang"
+	_ "github.com/benthosdev/benthos/v4/public/components/io"
 	sdk "github.com/cludden/concourse-go-sdk"
 	"github.com/cludden/concourse-go-sdk/pkg/archive"
 	"github.com/hashicorp/go-multierror"
@@ -16,7 +17,7 @@ import (
 )
 
 func main() {
-	sdk.Main(&Resource{})
+	sdk.Main[Source, Version, GetParams, PutParams](&Resource{})
 }
 
 // =============================================================================
@@ -57,10 +58,12 @@ func (v *Version) UnmarshalJSON(b []byte) error {
 // =============================================================================
 
 // Resource implements a keyval concourse resource
-type Resource struct{}
+type Resource struct {
+	sdk.BaseResource[Source, Version, GetParams, PutParams]
+}
 
 // Archive initializes a new archive value if configured
-func (r *Resource) Archive(ctx context.Context, s *Source) (archive.Archive, error) {
+func (r *Resource) Archive(ctx context.Context, s *Source) (sdk.Archive, error) {
 	if s != nil && s.Archive != nil {
 		return archive.New(ctx, *s.Archive)
 	}
@@ -77,7 +80,7 @@ func (r *Resource) Check(ctx context.Context, s *Source, v *Version) (versions [
 		if err != nil {
 			return nil, err
 		}
-		versions = append(versions, *init)
+		versions = append(versions, init)
 	}
 	return
 }
@@ -143,7 +146,7 @@ func (r *Resource) In(ctx context.Context, s *Source, v *Version, dir string, p 
 
 // Out generates a new version that contains arbitray key value pairs, where both keys
 // and values are string data
-func (r *Resource) Out(ctx context.Context, s *Source, dir string, p *PutParams) (*Version, []sdk.Metadata, error) {
+func (r *Resource) Out(ctx context.Context, s *Source, dir string, p *PutParams) (Version, []sdk.Metadata, error) {
 	m := "root = this"
 	if p != nil && p.Mapping != "" {
 		m = p.Mapping
@@ -181,22 +184,22 @@ func metadata() (doc map[string]interface{}, meta []sdk.Metadata) {
 }
 
 // newVersion initializes a new Version value using the specified mapping
-func (r *Resource) newVersion(ctx context.Context, mapping string) (*Version, []sdk.Metadata, error) {
+func (r *Resource) newVersion(ctx context.Context, mapping string) (Version, []sdk.Metadata, error) {
 	e, err := bloblang.Parse(mapping)
 	if err != nil {
-		return nil, nil, fmt.Errorf("error parsing 'mapping': %v", err)
+		return Version{}, nil, fmt.Errorf("error parsing 'mapping': %v", err)
 	}
 
 	doc, meta := metadata()
 
 	raw, err := e.Query(doc)
 	if err != nil {
-		return nil, nil, fmt.Errorf("error executing version mapping: %v", err)
+		return Version{}, nil, fmt.Errorf("error executing version mapping: %v", err)
 	}
 
 	data, ok := raw.(map[string]interface{})
 	if !ok {
-		return nil, nil, fmt.Errorf("version mapping returned invalid result, expected map, got: %T", raw)
+		return Version{}, nil, fmt.Errorf("version mapping returned invalid result, expected map, got: %T", raw)
 	}
 
 	errs := multierror.Append(nil)
@@ -206,9 +209,9 @@ func (r *Resource) newVersion(ctx context.Context, mapping string) (*Version, []
 		}
 	}
 	if errs.Len() > 0 {
-		return nil, nil, fmt.Errorf("version mapping returned invalid result: %s", errs.Error())
+		return Version{}, nil, fmt.Errorf("version mapping returned invalid result: %s", errs.Error())
 	}
-	return &Version{Data: data}, meta, nil
+	return Version{Data: data}, meta, nil
 }
 
 // writeJSON creates a formatted json file at the given directory + path

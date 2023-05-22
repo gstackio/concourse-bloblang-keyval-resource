@@ -114,3 +114,25 @@ func TestResource(t *testing.T) {
 	require.Equal("5541858611C514F02FD7E3F34D3FCAD17908D933", testData.Ref)
 	require.Equal("https://concourse.example.com/builds/1234", testData.URL)
 }
+
+func TestVersion(t *testing.T) {
+	require := require.New(t)
+
+	cases := []struct {
+		name     string
+		version  Version
+		expected string
+	}{
+		{
+			name:     "basic",
+			version:  Version{Data: map[string]any{"foo": "bar"}},
+			expected: `{"foo":"bar"}`,
+		},
+	}
+
+	for _, c := range cases {
+		b, err := json.Marshal(&c.version)
+		require.NoError(err)
+		require.Equal(c.expected, string(b))
+	}
+}
